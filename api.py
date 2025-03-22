@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, HttpUrl
-from typing import Optional
+from typing import Optional, List, Dict, Any
 import uvicorn
 import os
 from datetime import datetime
@@ -18,7 +18,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Models for request/response - simplified
+# Models for request/response - updated
 class SubmitRequest(BaseModel):
     url: HttpUrl
 
@@ -31,8 +31,17 @@ class StatusResponse(BaseModel):
     ai_report_url: Optional[str] = None
     error: Optional[str] = None
 
+class AccountQuota(BaseModel):
+    email: str
+    quota: str
+    debug_url: Optional[str] = None
+
 class QuotaResponse(BaseModel):
     remaining: int
+    accounts: Optional[List[AccountQuota]] = None
+    total_used: Optional[int] = None
+    total_limit: Optional[int] = None
+    debug_urls: Optional[List[Dict[str, str]]] = None
 
 # Endpoints
 @app.post("/submit", response_model=SubmitResponse)
@@ -118,12 +127,17 @@ async def get_submission_status(submission_id: str):
         return {"status": "error", "error": str(e)}
 
 @app.get("/quota", response_model=QuotaResponse)
-async def get_quota():
+async def get_quota(include_debug: bool = False):
     """Check remaining quota across all accounts"""
     try:
         quota_data = check_all_quotas()
-        # Return only the remaining field
-        return {"remaining": quota_data["remaining"]}
+        
+        # Include full debug information if requested
+        if include_debug:
+            return quota_data
+        else:
+            # Return only the remaining field
+            return {"remaining": quota_data["remaining"]}
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error checking quota: {str(e)}")
@@ -137,7 +151,7 @@ async def root():
         "endpoints": {
             "POST /submit": "Submit a document URL for processing",
             "GET /receive/{submission_id}": "Check status of a submission",
-            "GET /quota": "Check remaining quota"
+            "GET /quota": "Check remaining quota (add ?include_debug=true for detailed info)"
         }
     }
 
