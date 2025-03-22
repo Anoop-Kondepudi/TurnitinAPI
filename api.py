@@ -8,40 +8,15 @@ import uuid
 import re
 import os.path
 import urllib.parse
-import logging
-from account_manager import init_accounts
 
 # Import functions from existing scripts
 from backend import download_file, upload_document, check_submission, check_quota as check_all_quotas
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 app = FastAPI(
-    title="ScopedLens API",
-    description="API for checking documents with ScopedLens",
+    title="Turnitin API",
+    description="API for checking documents with Turnitin",
     version="1.0.0"
 )
-
-@app.on_event("startup")
-async def startup_event():
-    """Verify everything is working on startup"""
-    logger.info("API starting up")
-    logger.info(f"Current working directory: {os.getcwd()}")
-    logger.info(f"Directory contents: {os.listdir()}")
-    
-    # Test account initialization
-    init_success = init_accounts()
-    logger.info(f"Account initialization: {'Success' if init_success else 'Failed'}")
-    
-    # Test quota check
-    try:
-        from backend import check_quota
-        quota_data = check_quota()
-        logger.info(f"Initial quota check: {quota_data['remaining']} submissions remaining")
-    except Exception as e:
-        logger.error(f"Error during initial quota check: {str(e)}")
 
 # Models for request/response - simplified
 class SubmitRequest(BaseModel):
@@ -90,7 +65,7 @@ async def submit_document(request: SubmitRequest):
         if not local_file:
             raise HTTPException(status_code=400, detail="Failed to download file from URL")
         
-        # Upload to ScopedLens
+        # Upload to Turnitin
         submission_id = upload_document(local_file)
         
         # Clean up the temporary file
@@ -98,7 +73,7 @@ async def submit_document(request: SubmitRequest):
             os.remove(local_file)
         
         if not submission_id:
-            raise HTTPException(status_code=500, detail="Failed to get submission ID from ScopedLens")
+            raise HTTPException(status_code=500, detail="Failed to get submission ID from Tunrnitin")
         
         # Return only the submission ID
         return {"submission_id": submission_id}
@@ -157,7 +132,7 @@ async def get_quota():
 @app.get("/")
 async def root():
     return {
-        "name": "ScopedLens API",
+        "name": "Turnitin API",
         "version": "1.0.0",
         "endpoints": {
             "POST /submit": "Submit a document URL for processing",

@@ -1,6 +1,6 @@
 # Turnitin API
 
-API service for checking documents with ScopedLens.
+API service for checking documents with Turnitin.
 
 ## Endpoints
 

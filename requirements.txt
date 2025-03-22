@@ -23,3 +23,5 @@ starlette==0.27.0
 typing_extensions==4.12.2
 urllib3==2.3.0
 uvicorn==0.23.2
+Brotli==1.1.0
+brotlipy==0.7.0
