@@ -16,8 +16,8 @@ PROXY_PORT = "1337"
 PROXY_USERNAME = "lho7SIZFaRh9"
 PROXY_PASSWORD = "1inYc0RRMvYs"
 
-# Configure proxy URL
-PROXY_URL = f"http://{PROXY_USERNAME}:{PROXY_PASSWORD}@{PROXY_HOST}:{PROXY_PORT}"
+# Configure proxy URL - URL encode credentials to handle special characters
+PROXY_URL = f"http://{urllib.parse.quote(PROXY_USERNAME)}:{urllib.parse.quote(PROXY_PASSWORD)}@{PROXY_HOST}:{PROXY_PORT}"
 
 # Headers to mimic a browser request
 HEADERS = {
@@ -282,8 +282,8 @@ def check_submission(submission_id):
                 results = {k: v for k, v in results.items() if v is not None}
                 
                 # Save results to JSON
-                with open(os.path.join(reports_dir, 'results.json'), 'w') as f:
-                    json.dump(results, f, indent=4)
+                with open(os.path.join(reports_dir, 'results.json'), 'w', encoding='utf-8') as f:
+                    json.dump(results, f, indent=4, ensure_ascii=False)
                 
                 return results
                 
@@ -303,7 +303,7 @@ def download_reports(submission_id, results):
     
     transport = httpx.HTTPTransport(proxy=PROXY_URL)
     with httpx.Client(cookies=cookies, headers=HEADERS, transport=transport) as client:
-        if results["similarity_url"]:
+        if "similarity_url" in results and results["similarity_url"]:
             try:
                 similarity_report_response = client.get(results["similarity_url"])
                 if similarity_report_response.status_code == 200:
@@ -318,7 +318,7 @@ def download_reports(submission_id, results):
         else:
             print("Similarity Report URL not available")
         
-        if results["ai_url"]:
+        if "ai_url" in results and results["ai_url"]:
             try:
                 ai_report_response = client.get(results["ai_url"])
                 if ai_report_response.status_code == 200:
@@ -332,8 +332,6 @@ def download_reports(submission_id, results):
                 print(f"Error downloading AI Writing Report: {str(e)}")
         else:
             print("AI Writing Report URL not available")
-
-# Update the check_quota function
 
 def check_quota():
     """Check the remaining quota from ScopedLens for all accounts"""
@@ -410,7 +408,11 @@ def check_quota():
         "debug_urls": debug_urls
     }
     
-    print(f"DEBUG Final quota result: {json.dumps(result, indent=2)}")
+    # Save with proper encoding
+    with open('quota_debug.json', 'w', encoding='utf-8') as f:
+        json.dump(result, f, indent=2, ensure_ascii=False)
+    
+    print(f"DEBUG Final quota result: {json.dumps(result, indent=2, ensure_ascii=False)}")
     return result
 
 def save_debug_html(html_content, account_email):
@@ -424,8 +426,8 @@ def save_debug_html(html_content, account_email):
         client.put_object(
             Bucket=R2_BUCKET_NAME,
             Key=object_name,
-            Body=html_content,
-            ContentType='text/html'
+            Body=html_content.encode('utf-8'),  # Ensure proper encoding
+            ContentType='text/html; charset=utf-8'
         )
         
         # Generate a 24-hour accessible URL
@@ -487,15 +489,17 @@ def main_menu():
                         
                         if results:
                             print("\nResults:")
-                            print(f"Similarity Index: {results['similarity_index']}")
-                            print(f"AI Writing Index: {results['ai_index']}")
+                            if "similarity_index" in results:
+                                print(f"Similarity Index: {results['similarity_index']}")
+                            if "ai_index" in results:
+                                print(f"AI Writing Index: {results['ai_index']}")
                             
-                            if results["similarity_url"]:
+                            if "similarity_url" in results and results["similarity_url"]:
                                 print(f"Similarity Report URL: {results['similarity_url']}")
                             else:
                                 print("Similarity Report not available yet")
                             
-                            if results["ai_url"]:
+                            if "ai_url" in results and results["ai_url"]:
                                 print(f"AI Writing Report URL: {results['ai_url']}")
                             else:
                                 print("AI Writing Report not available yet")
