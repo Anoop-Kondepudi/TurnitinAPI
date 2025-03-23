@@ -343,62 +343,182 @@ def check_quota():
     total_limit = 0
     debug_urls = []
     
+    print(f"DEBUG: Starting quota check for {len(all_accounts)} accounts")
+    
     for account in all_accounts:
+        print(f"\nDEBUG: Checking quota for account: {account['email']}")
         try:
             cookies = account["cookies"]
+            
+            # Create a client with explicit encoding settings
             transport = httpx.HTTPTransport(proxy=PROXY_URL)
-            with httpx.Client(cookies=cookies, headers=HEADERS, transport=transport) as client:
+            
+            # Add specific headers to help with encoding
+            headers = HEADERS.copy()
+            headers["Accept-Charset"] = "utf-8"
+            
+            print(f"DEBUG: Making request to {create_url} with proxy {PROXY_URL}")
+            with httpx.Client(cookies=cookies, headers=headers, transport=transport) as client:
+                # Make the request with explicit encoding handling
                 response = client.get(create_url)
                 
-                # Save HTML for debugging
-                html_content = response.text
-                debug_url = save_debug_html(html_content, account["email"])
-                if debug_url:
-                    debug_urls.append({"email": account["email"], "debug_url": debug_url})
-                    print(f"DEBUG HTML for {account['email']}: {debug_url}")
+                print(f"DEBUG: Response status code: {response.status_code}")
+                print(f"DEBUG: Response headers: {dict(response.headers)}")
                 
                 if response.status_code == 200:
-                    soup = BeautifulSoup(response.text, 'html.parser')
+                    # Save raw HTML for debugging
+                    raw_html = response.content
+                    debug_url = save_debug_html(raw_html.decode('utf-8', errors='replace'), account["email"])
+                    if debug_url:
+                        debug_urls.append({"email": account["email"], "debug_url": debug_url})
+                        print(f"DEBUG: Saved HTML for {account['email']} at {debug_url}")
                     
-                    quota_element = soup.select_one("div > div > div > h6")
-                    if quota_element:
-                        # Get the text and replace all whitespace (including newlines) with single spaces
-                        quota_text = re.sub(r'\s+', ' ', quota_element.text.strip())
-                        print(f"DEBUG Raw quota text for {account['email']}: '{quota_text}'")
-                        
-                        # Extract the numbers using regex
-                        quota_match = re.search(r'(\d+)\s*/\s*(\d+)', quota_text)
-                        if quota_match:
-                            used = int(quota_match.group(1))
-                            limit = int(quota_match.group(2))
-                            total_used += used
-                            total_limit += limit
-                            # Format as a single string without extra spaces
-                            quota = f"{used}/{limit}"
-                        else:
-                            # Simple cleanup as fallback
-                            clean_text = quota_text.replace("Your Quota:", "").replace("Reset everyday", "").strip()
-                            # Further replace any remaining newlines
-                            quota = clean_text.replace("\n", "")
-                            print(f"WARNING: Could not extract numbers from '{quota_text}' for {account['email']}")
+                    # Try different encodings to find one that works
+                    encodings_to_try = ['utf-8', 'latin-1', 'iso-8859-1', 'windows-1252']
+                    html_content = None
+                    successful_encoding = None
+                    
+                    for encoding in encodings_to_try:
+                        try:
+                            print(f"DEBUG: Trying encoding: {encoding}")
+                            # Force the encoding
+                            response.encoding = encoding
+                            html_content = response.text
+                            
+                            # Check if we can find the quota text with this encoding
+                            soup = BeautifulSoup(html_content, 'html.parser')
+                            quota_element = soup.select_one("div > div > div > h6")
+                            
+                            if quota_element:
+                                print(f"DEBUG: Found h6 element with text: '{quota_element.text}'")
+                                if "Your Quota:" in quota_element.text:
+                                    print(f"DEBUG: Successfully decoded with {encoding}")
+                                    successful_encoding = encoding
+                                    break
+                        except Exception as e:
+                            print(f"DEBUG: Error with encoding {encoding}: {str(e)}")
+                    
+                    if not html_content:
+                        print("DEBUG: All encodings failed, using 'replace' error handler")
+                        # If all encodings failed, use the raw content and decode manually
+                        html_content = response.content.decode('utf-8', errors='replace')
+                    
+                    print(f"DEBUG: Final encoding used: {successful_encoding or 'fallback with replace'}")
+                    
+                    # Try to extract quota directly from the HTML using regex
+                    print("DEBUG: Attempting regex extraction directly from HTML")
+                    quota_match = re.search(r'Your\s+Quota:\s*(\d+)\s*/\s*(\d+)', html_content)
+                    
+                    if quota_match:
+                        used = int(quota_match.group(1))
+                        limit = int(quota_match.group(2))
+                        total_used += used
+                        total_limit += limit
+                        quota = f"{used}/{limit}"
+                        print(f"DEBUG: Found quota via regex: {quota}")
                     else:
-                        quota = "Quota information not found"
-                        print(f"WARNING: Quota element not found for {account['email']}")
+                        print("DEBUG: Regex extraction failed, trying BeautifulSoup")
+                        # Try parsing with BeautifulSoup
+                        soup = BeautifulSoup(html_content, 'html.parser')
+                        
+                        # Try multiple selectors to find quota information
+                        quota_element = None
+                        selectors = [
+                            "div > div > div > h6",
+                            "h6",
+                            ".quota-display",  # Add any class that might contain quota info
+                            "div.container h6"
+                        ]
+                        
+                        for selector in selectors:
+                            print(f"DEBUG: Trying selector: {selector}")
+                            elements = soup.select(selector)
+                            print(f"DEBUG: Found {len(elements)} elements with selector {selector}")
+                            
+                            for element in elements:
+                                print(f"DEBUG: Element text: '{element.text}'")
+                                if "Quota" in element.text:
+                                    quota_element = element
+                                    print(f"DEBUG: Found quota element with text: '{element.text}'")
+                                    break
+                            if quota_element:
+                                break
+                        
+                        if quota_element:
+                            # Get the text and replace all whitespace with single spaces
+                            quota_text = re.sub(r'\s+', ' ', quota_element.text.strip())
+                            print(f"DEBUG: Cleaned quota text: '{quota_text}'")
+                            
+                            # Extract the numbers using regex
+                            quota_match = re.search(r'(\d+)\s*/\s*(\d+)', quota_text)
+                            if quota_match:
+                                used = int(quota_match.group(1))
+                                limit = int(quota_match.group(2))
+                                total_used += used
+                                total_limit += limit
+                                quota = f"{used}/{limit}"
+                                print(f"DEBUG: Extracted quota: {quota}")
+                            else:
+                                print("DEBUG: Failed to extract numbers with regex, trying direct number extraction")
+                                # Try to extract any numbers from the text
+                                numbers = re.findall(r'\d+', quota_text)
+                                print(f"DEBUG: Found numbers: {numbers}")
+                                
+                                if len(numbers) >= 2:
+                                    used = int(numbers[0])
+                                    limit = int(numbers[1])
+                                    total_used += used
+                                    total_limit += limit
+                                    quota = f"{used}/{limit}"
+                                    print(f"DEBUG: Using first two numbers as quota: {quota}")
+                                else:
+                                    quota = "Could not parse quota numbers"
+                                    print(f"DEBUG: Not enough numbers found in text")
+                        else:
+                            print("DEBUG: No quota element found with selectors, trying last resort search")
+                            # Last resort: try to find any text containing quota information
+                            found_quota = False
+                            for tag in soup.find_all(['div', 'span', 'p', 'h6']):
+                                if 'Quota' in tag.text:
+                                    print(f"DEBUG: Found element with 'Quota' in text: '{tag.text}'")
+                                    numbers = re.findall(r'\d+', tag.text)
+                                    print(f"DEBUG: Numbers in this element: {numbers}")
+                                    
+                                    if len(numbers) >= 2:
+                                        used = int(numbers[0])
+                                        limit = int(numbers[1])
+                                        total_used += used
+                                        total_limit += limit
+                                        quota = f"{used}/{limit}"
+                                        found_quota = True
+                                        print(f"DEBUG: Extracted quota: {quota}")
+                                        break
+                            
+                            if not found_quota:
+                                quota = "Quota information not found"
+                                print("DEBUG: Could not find quota information in any element")
                 else:
                     quota = f"Error: Could not fetch quota (HTTP {response.status_code})"
-                    
+                    print(f"DEBUG: HTTP error {response.status_code}")
+                
                 quota_results.append({
                     "email": account["email"],
                     "quota": quota
                 })
                 
         except Exception as e:
+            print(f"DEBUG: Exception in check_quota for {account['email']}: {str(e)}")
+            import traceback
+            print(f"DEBUG: Traceback: {traceback.format_exc()}")
+            
             quota_results.append({
                 "email": account["email"],
                 "quota": f"Error: {str(e)}"
             })
     
-    remaining_submissions = total_limit - total_used
+    # Calculate remaining submissions
+    remaining_submissions = max(0, total_limit - total_used)  # Ensure it's not negative
+    print(f"\nDEBUG: Final calculation: {total_used}/{total_limit} = {remaining_submissions} remaining")
     
     result = {
         "accounts": quota_results,
@@ -408,11 +528,12 @@ def check_quota():
         "debug_urls": debug_urls
     }
     
-    # Save with proper encoding
-    with open('quota_debug.json', 'w', encoding='utf-8') as f:
+    # Save debug information to a file
+    debug_file = f"quota_debug_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    with open(debug_file, 'w', encoding='utf-8') as f:
         json.dump(result, f, indent=2, ensure_ascii=False)
+    print(f"DEBUG: Saved debug information to {debug_file}")
     
-    print(f"DEBUG Final quota result: {json.dumps(result, indent=2, ensure_ascii=False)}")
     return result
 
 def save_debug_html(html_content, account_email):
