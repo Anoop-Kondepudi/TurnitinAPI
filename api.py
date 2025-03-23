@@ -36,12 +36,9 @@ class AccountQuota(BaseModel):
     quota: str
     debug_url: Optional[str] = None
 
-class QuotaResponse(BaseModel):
+# Create a simpler model for quota response
+class SimpleQuotaResponse(BaseModel):
     remaining: int
-    accounts: Optional[List[AccountQuota]] = None
-    total_used: Optional[int] = None
-    total_limit: Optional[int] = None
-    debug_urls: Optional[List[Dict[str, str]]] = None
 
 # Endpoints
 @app.post("/submit", response_model=SubmitResponse)
@@ -130,18 +127,14 @@ async def get_submission_status(submission_id: str):
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
-@app.get("/quota", response_model=QuotaResponse)
+@app.get("/quota", response_model=SimpleQuotaResponse)
 async def get_quota(include_debug: bool = False):
     """Check remaining quota across all accounts"""
     try:
         quota_data = check_all_quotas()
         
-        # Include full debug information if requested
-        if include_debug:
-            return quota_data
-        else:
-            # Return only the remaining field
-            return {"remaining": quota_data["remaining"]}
+        # Always return only the remaining field
+        return {"remaining": quota_data["remaining"]}
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error checking quota: {str(e)}")
