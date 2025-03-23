@@ -7,6 +7,7 @@ from datetime import datetime
 import urllib.parse
 import sys
 import json
+import uuid
 from cloudflare_utils import upload_to_cloudflare, init_cloudflare_client, R2_BUCKET_NAME
 from account_manager import get_account_for_upload, get_account_for_submission, get_all_accounts
 
@@ -79,21 +80,74 @@ def upload_document(file_path):
     create_url = "https://scopedlens.com/self-service/submission/create"
     
     try:
-        # Get the create page to extract the CSRF token
-        transport = httpx.HTTPTransport(proxy=PROXY_URL)
-        with httpx.Client(cookies=cookies, headers=HEADERS, transport=transport) as client:
-            create_response = client.get(create_url)
-            create_response.raise_for_status()
+        # Create a client with explicit decompression and timeout settings
+        transport = httpx.HTTPTransport(
+            proxy=PROXY_URL,
+            retries=3
+        )
+        
+        with httpx.Client(
+            cookies=cookies, 
+            headers=HEADERS, 
+            transport=transport,
+            timeout=30.0,  # Increase timeout
+            follow_redirects=True  # Follow redirects automatically
+        ) as client:
+            # Explicitly set Accept-Encoding to handle compression properly
+            headers_with_encoding = HEADERS.copy()
+            headers_with_encoding["Accept-Encoding"] = "gzip, deflate"
+            
+            create_response = client.get(create_url, headers=headers_with_encoding)
+            
+            # Force encoding to UTF-8 if needed
+            create_response.encoding = "utf-8"
+            
+            # Get the decoded content
+            html_content = create_response.text
+            
+            # Save HTML for debugging
+            debug_url = save_debug_html(html_content, f"upload_{account['email']}")
+            print(f"DEBUG HTML for upload: {debug_url}")
             
             # Parse the HTML to extract the CSRF token
-            soup = BeautifulSoup(create_response.text, 'html.parser')
-            csrf_input = soup.find('input', {'name': 'csrfmiddlewaretoken'})
+            soup = BeautifulSoup(html_content, 'html.parser')
             
-            if not csrf_input:
+            # Find CSRF token - try the form first
+            csrf_token = None
+            submission_form = soup.find('form', {'id': 'submission-form'})
+            if submission_form:
+                csrf_input = submission_form.find('input', {'name': 'csrfmiddlewaretoken'})
+                if csrf_input:
+                    csrf_token = csrf_input.get('value')
+                    print(f"Found CSRF token in submission form: {csrf_token[:10]}...")
+            
+            # If not found, try a more general approach
+            if not csrf_token:
+                csrf_input = soup.find('input', {'name': 'csrfmiddlewaretoken'})
+                if csrf_input:
+                    csrf_token = csrf_input.get('value')
+                    print(f"Found CSRF token with general selector: {csrf_token[:10]}...")
+            
+            # If still not found, save debug info and return None
+            if not csrf_token:
+                print(f"CSRF token not found. Debug HTML already saved: {debug_url}")
+                
+                # Check if we're logged in or redirected to login page
+                if "login" in html_content.lower() or "sign in" in html_content.lower():
+                    print("Session may have expired - user not logged in")
+                else:
+                    # Print form elements for debugging
+                    forms = soup.find_all('form')
+                    print(f"Found {len(forms)} forms on the page")
+                    for i, form in enumerate(forms):
+                        print(f"Form {i+1} ID: {form.get('id', 'No ID')}")
+                        inputs = form.find_all('input')
+                        print(f"  Found {len(inputs)} inputs in this form")
+                        for input_elem in inputs:
+                            print(f"  Input: name={input_elem.get('name', 'No name')}, type={input_elem.get('type', 'No type')}")
+                
                 print("Could not find CSRF token on the page")
                 return None
-            
-            csrf_token = csrf_input.get('value')
             
             # Prepare the file for upload
             file_name = os.path.basename(file_path)
@@ -109,7 +163,7 @@ def upload_document(file_path):
             }
             
             # Add the CSRF token to the headers
-            upload_headers = HEADERS.copy()
+            upload_headers = headers_with_encoding.copy()
             upload_headers["Referer"] = create_url
             
             # Make the POST request to upload the document
@@ -119,51 +173,153 @@ def upload_document(file_path):
                     create_url,
                     headers=upload_headers,
                     data=form_data,
-                    files=files
+                    files=files,
+                    timeout=60.0  # Longer timeout for upload
                 )
             
             # Check if the upload was successful
             if upload_response.status_code == 200 or upload_response.status_code == 302:
                 # The upload was successful, now we need to get the submission ID
                 # We'll check the submissions page to find the most recent submission
-                time.sleep(2)  # Wait a bit for the server to process the upload
+                print("Upload appears successful, retrieving submission ID...")
+                time.sleep(3)  # Wait a bit more for the server to process the upload
                 
                 submissions_url = "https://scopedlens.com/self-service/submissions/"
-                submissions_response = client.get(submissions_url)
                 
-                if submissions_response.status_code == 200:
-                    # Parse the HTML to find the most recent submission
-                    submissions_soup = BeautifulSoup(submissions_response.text, 'html.parser')
-                    submission_link = submissions_soup.select_one('#submission-row td:first-child a')
+                # Use the same robust HTTP client configuration for submissions page
+                try:
+                    # Get submissions page with the same robust approach
+                    submissions_response = client.get(
+                        submissions_url,
+                        headers=headers_with_encoding,
+                        timeout=30.0,
+                        follow_redirects=True
+                    )
                     
-                    if submission_link:
-                        href = submission_link.get('href')
-                        # Extract the UUID from the href
-                        submission_id = href.split('/')[-1]
+                    # Force encoding to UTF-8 if needed
+                    submissions_response.encoding = "utf-8"
+                    
+                    # Get the decoded content
+                    submissions_html = submissions_response.text
+                    
+                    # Always save HTML for debugging regardless of success
+                    debug_url = save_debug_html(submissions_html, f"submissions_page_{account['email']}")
+                    print(f"Submissions page debug HTML: {debug_url}")
+                    
+                    if submissions_response.status_code == 200:
+                        # Parse the HTML to find the most recent submission
+                        submissions_soup = BeautifulSoup(submissions_html, 'html.parser')
                         
-                        # Associate submission with account
-                        from account_manager import associate_submission_with_account
-                        associate_submission_with_account(submission_id, account["email"])
+                        # First try the expected selector
+                        submission_link = submissions_soup.select_one('#submission-row td:first-child a')
                         
-                        print(f"Document uploaded successfully! Submission ID: {submission_id}")
-                        return submission_id
+                        # If not found, try more general approaches
+                        if not submission_link:
+                            print("First selector failed, trying alternate selectors...")
+                            # Try to find the first link in the first row of the submissions table
+                            submission_tables = submissions_soup.select('table.table')
+                            if submission_tables:
+                                first_table = submission_tables[0]
+                                rows = first_table.select('tbody tr')
+                                if rows:
+                                    first_row = rows[0]
+                                    # Try to find the first anchor in the first row
+                                    submission_link = first_row.find('a')
+                                    if submission_link:
+                                        print("Found submission link using alternate selector")
+                        
+                        # If we found a link
+                        if submission_link:
+                            href = submission_link.get('href')
+                            # Extract the UUID from the href
+                            submission_id = href.split('/')[-1]
+                            
+                            # Associate submission with account
+                            from account_manager import associate_submission_with_account
+                            associate_submission_with_account(submission_id, account["email"])
+                            
+                            print(f"Document uploaded successfully! Submission ID: {submission_id}")
+                            return submission_id
+                        else:
+                            print("Could not find submission ID in the response")
+                            
+                            # Print more detailed debugging information
+                            print("Page structure analysis:")
+                            tables = submissions_soup.find_all('table')
+                            print(f"Found {len(tables)} tables on page")
+                            
+                            for i, table in enumerate(tables):
+                                print(f"Table {i+1} class: {table.get('class', 'No class')}")
+                                rows = table.find_all('tr')
+                                print(f"  Found {len(rows)} rows in this table")
+                                if rows:
+                                    for j, row in enumerate(rows[:2]):  # Print info about first 2 rows only
+                                        links = row.find_all('a')
+                                        print(f"  Row {j+1} has {len(links)} links")
+                                        for k, link in enumerate(links):
+                                            print(f"    Link {k+1} href: {link.get('href', 'No href')}")
                     else:
-                        print("Could not find submission ID in the response")
-                else:
-                    print(f"Failed to retrieve submissions list. Status code: {submissions_response.status_code}")
-            else:
-                print(f"Upload failed. Status code: {upload_response.status_code}")
-                print(f"Response content: {upload_response.text[:500]}...")
+                        print(f"Failed to retrieve submissions list. Status code: {submissions_response.status_code}")
+                        print(f"Response content: {submissions_html[:500]}...")
+                
+                except Exception as e:
+                    print(f"Error retrieving submissions page: {str(e)}")
+                    # Try one more time with a longer delay
+                    print("Retrying after a longer delay...")
+                    time.sleep(7)  # Wait longer before retry
+                    try:
+                        submissions_response = client.get(
+                            submissions_url,
+                            headers=headers_with_encoding,
+                            timeout=45.0,  # Even longer timeout for retry
+                            follow_redirects=True
+                        )
+                        
+                        if submissions_response.status_code == 200:
+                            submissions_soup = BeautifulSoup(submissions_response.text, 'html.parser')
+                            submission_link = submissions_soup.select_one('table.table tbody tr:first-child a')
+                            
+                            if submission_link:
+                                href = submission_link.get('href')
+                                submission_id = href.split('/')[-1]
+                                
+                                # Associate submission with account
+                                from account_manager import associate_submission_with_account
+                                associate_submission_with_account(submission_id, account["email"])
+                                
+                                print(f"Document uploaded successfully on retry! Submission ID: {submission_id}")
+                                return submission_id
+                            else:
+                                print("Still could not find submission ID after retry")
+                                debug_url = save_debug_html(submissions_response.text, f"submissions_retry_{account['email']}")
+                                print(f"Retry submissions debug HTML: {debug_url}")
+                    except Exception as retry_e:
+                        print(f"Retry also failed: {str(retry_e)}")
             
             return None
     
+    except httpx.HTTPStatusError as e:
+        print(f"HTTP error during upload: {e.response.status_code}")
+        print(f"Response content: {e.response.text[:500]}...")
+        # Save debug HTML for HTTP error
+        debug_url = save_debug_html(e.response.text, f"http_error_{account['email']}")
+        print(f"HTTP error debug HTML: {debug_url}")
+        return None
+    except httpx.RequestError as e:
+        print(f"Request error during upload: {str(e)}")
+        return None
     except Exception as e:
         print(f"An error occurred during upload: {str(e)}")
         return None
 
-def check_submission(submission_id):
+def check_submission(submission_id, temp_dir=None):
     """Check the status of a submission and return the indices and report links"""
     print(f"Checking submission: {submission_id}")
+    
+    # Use provided temp_dir or create a default one
+    if temp_dir is None:
+        temp_dir = os.path.join(TMP_DIR, f'Reports_{submission_id}_{uuid.uuid4().hex}')
+        os.makedirs(temp_dir, exist_ok=True)
     
     # Get the account associated with this submission
     account = get_account_for_submission(submission_id)
@@ -185,7 +341,7 @@ def check_submission(submission_id):
                 if error_text and error_text.text.strip() == "Page not found":
                     return {"error": "Invalid submission_id"}
                 
-                # Check for error message in the table (XPath: /html/body/div/div/div/div/table/tbody/tr[6])
+                # Check for error message in the table
                 error_rows = soup.select('table tbody tr')
                 for row in error_rows:
                     header_cell = row.find('th')
@@ -207,10 +363,6 @@ def check_submission(submission_id):
                     "similarity_report_url": None,
                     "ai_report_url": None
                 }
-                
-                # Create reports directory structure in /tmp
-                reports_dir = os.path.join(TMP_DIR, 'Reports', submission_id)
-                os.makedirs(reports_dir, exist_ok=True)
                 
                 # Extract indices based on SAVE_MODE
                 table_rows = soup.select('table tbody tr')
@@ -241,7 +393,7 @@ def check_submission(submission_id):
                 if SAVE_MODE in [2, 3]:
                     similarity_link = soup.find('a', string=re.compile("Download Similarity Report"))
                     if similarity_link:
-                        local_path = os.path.join(reports_dir, f"similarity_report_{timestamp}.pdf")
+                        local_path = os.path.join(temp_dir, f"similarity_report_{timestamp}.pdf")
                         response = client.get(similarity_link['href'])
                         if response.status_code == 200:
                             with open(local_path, 'wb') as f:
@@ -258,7 +410,7 @@ def check_submission(submission_id):
                 if SAVE_MODE in [1, 3]:
                     ai_link = soup.find('a', string=re.compile("Download AI Writing Report"))
                     if ai_link:
-                        local_path = os.path.join(reports_dir, f"ai_report_{timestamp}.pdf")
+                        local_path = os.path.join(temp_dir, f"ai_report_{timestamp}.pdf")
                         response = client.get(ai_link['href'])
                         if response.status_code == 200:
                             with open(local_path, 'wb') as f:
@@ -284,13 +436,10 @@ def check_submission(submission_id):
                     if has_required_index and has_required_report:
                         results['status'] = "done"
                 
-                # Filter out None values before saving to JSON
+                # Filter out None values before returning
                 results = {k: v for k, v in results.items() if v is not None}
                 
-                # Save results to JSON in /tmp
-                with open(os.path.join(reports_dir, 'results.json'), 'w') as f:
-                    json.dump(results, f, indent=4)
-                
+                # No need to save results to JSON anymore
                 return results
                 
             else:
@@ -444,10 +593,10 @@ def check_quota():
     print(f"DEBUG Final quota result: {json.dumps(result, indent=2)}")
     return result
 
-def save_debug_html(html_content, account_email):
+def save_debug_html(html_content, identifier):
     """Save HTML content to Cloudflare R2 for debugging"""
     timestamp = int(time.time())
-    object_name = f"debug/html_{account_email}_{timestamp}.html"
+    object_name = f"debug/html_{identifier}_{timestamp}.html"
     
     client = init_cloudflare_client()
     
