@@ -36,14 +36,20 @@ HEADERS = {
 # Add this near the top with other constants
 SAVE_MODE = 1  # 1 = AI only, 2 = Similarity only, 3 = Both
 
+# Add a constant for temp directory
+TMP_DIR = "/tmp"  # Use Vercel's tmp directory for serverless functions
+
 def download_file(url, local_filename=None):
-    """Download a file from a URL and save it locally"""
+    """Download a file from a URL and save it locally in the /tmp directory"""
     if not local_filename:
         local_filename = os.path.basename(urllib.parse.urlparse(url).path)
         if not local_filename:
             local_filename = "downloaded_file"
     
-    print(f"Downloading file from {url}...")
+    # Ensure the file is saved to the /tmp directory
+    local_filename = os.path.join(TMP_DIR, os.path.basename(local_filename))
+    
+    print(f"Downloading file from {url} to {local_filename}...")
     
     try:
         transport = httpx.HTTPTransport(proxy=PROXY_URL)
@@ -54,8 +60,8 @@ def download_file(url, local_filename=None):
             with open(local_filename, 'wb') as f:
                 f.write(response.content)
         
-        print(f"File downloaded successfully to {os.path.abspath(local_filename)}")
-        return os.path.abspath(local_filename)
+        print(f"File downloaded successfully to {local_filename}")
+        return local_filename
     except Exception as e:
         print(f"Error downloading file: {str(e)}")
         return None
@@ -202,8 +208,8 @@ def check_submission(submission_id):
                     "ai_report_url": None
                 }
                 
-                # Create reports directory structure
-                reports_dir = os.path.join('Reports', submission_id)
+                # Create reports directory structure in /tmp
+                reports_dir = os.path.join(TMP_DIR, 'Reports', submission_id)
                 os.makedirs(reports_dir, exist_ok=True)
                 
                 # Extract indices based on SAVE_MODE
@@ -281,7 +287,7 @@ def check_submission(submission_id):
                 # Filter out None values before saving to JSON
                 results = {k: v for k, v in results.items() if v is not None}
                 
-                # Save results to JSON
+                # Save results to JSON in /tmp
                 with open(os.path.join(reports_dir, 'results.json'), 'w') as f:
                     json.dump(results, f, indent=4)
                 
@@ -294,7 +300,7 @@ def check_submission(submission_id):
         return {"error": str(e)}
 
 def download_reports(submission_id, results):
-    """Download the reports for a submission"""
+    """Download the reports for a submission to /tmp directory"""
     # Get the account associated with this submission
     account = get_account_for_submission(submission_id)
     cookies = account["cookies"]
@@ -307,7 +313,7 @@ def download_reports(submission_id, results):
             try:
                 similarity_report_response = client.get(results["similarity_url"])
                 if similarity_report_response.status_code == 200:
-                    similarity_report_filename = f"similarity_report_{submission_id}_{timestamp}.pdf"
+                    similarity_report_filename = os.path.join(TMP_DIR, f"similarity_report_{submission_id}_{timestamp}.pdf")
                     with open(similarity_report_filename, "wb") as file:
                         file.write(similarity_report_response.content)
                     print(f"Similarity Report downloaded to: {os.path.abspath(similarity_report_filename)}")
@@ -322,7 +328,7 @@ def download_reports(submission_id, results):
             try:
                 ai_report_response = client.get(results["ai_url"])
                 if ai_report_response.status_code == 200:
-                    ai_report_filename = f"ai_writing_report_{submission_id}_{timestamp}.pdf"
+                    ai_report_filename = os.path.join(TMP_DIR, f"ai_writing_report_{submission_id}_{timestamp}.pdf")
                     with open(ai_report_filename, "wb") as file:
                         file.write(ai_report_response.content)
                     print(f"AI Writing Report downloaded to: {os.path.abspath(ai_report_filename)}")

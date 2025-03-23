@@ -10,7 +10,7 @@ import os.path
 import urllib.parse
 
 # Import functions from existing scripts
-from backend import download_file, upload_document, check_submission, check_quota as check_all_quotas
+from backend import download_file, upload_document, check_submission, check_quota as check_all_quotas, TMP_DIR
 
 app = FastAPI(
     title="Turnitin API",
@@ -67,9 +67,12 @@ async def submit_document(request: SubmitRequest):
     request_id = uuid.uuid4()
     temp_filename = f"{base_name}_{request_id}{extension}"
     
+    # Ensure temp_filename is in /tmp directory
+    temp_filepath = os.path.join(TMP_DIR, temp_filename)
+    
     try:
-        # Download the file
-        local_file = download_file(str(request.url), temp_filename)
+        # Download the file to /tmp directory
+        local_file = download_file(str(request.url), temp_filepath)
         
         if not local_file:
             raise HTTPException(status_code=400, detail="Failed to download file from URL")
@@ -89,8 +92,8 @@ async def submit_document(request: SubmitRequest):
     
     except Exception as e:
         # Clean up in case of error
-        if os.path.exists(temp_filename):
-            os.remove(temp_filename)
+        if os.path.exists(temp_filepath):
+            os.remove(temp_filepath)
         raise HTTPException(status_code=500, detail=f"Error processing submission: {str(e)}")
 
 @app.get("/receive/{submission_id}")
