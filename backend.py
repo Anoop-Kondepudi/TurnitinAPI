@@ -1,4 +1,4 @@
-import httpx
+import requests
 import os
 import re
 import time
@@ -18,6 +18,12 @@ PROXY_PASSWORD = "1inYc0RRMvYs"
 
 # Configure proxy URL - URL encode credentials to handle special characters
 PROXY_URL = f"http://{urllib.parse.quote(PROXY_USERNAME)}:{urllib.parse.quote(PROXY_PASSWORD)}@{PROXY_HOST}:{PROXY_PORT}"
+
+# Configure proxy dictionary for requests
+PROXIES = {
+    "http": PROXY_URL,
+    "https": PROXY_URL
+}
 
 # Headers to mimic a browser request
 HEADERS = {
@@ -46,13 +52,11 @@ def download_file(url, local_filename=None):
     print(f"Downloading file from {url}...")
     
     try:
-        transport = httpx.HTTPTransport(proxy=PROXY_URL)
-        with httpx.Client(transport=transport) as client:
-            response = client.get(url)
-            response.raise_for_status()
-            
-            with open(local_filename, 'wb') as f:
-                f.write(response.content)
+        response = requests.get(url, proxies=PROXIES, headers=HEADERS, timeout=30)
+        response.raise_for_status()
+        
+        with open(local_filename, 'wb') as f:
+            f.write(response.content)
         
         print(f"File downloaded successfully to {os.path.abspath(local_filename)}")
         return os.path.abspath(local_filename)
@@ -74,83 +78,96 @@ def upload_document(file_path):
     
     try:
         # Get the create page to extract the CSRF token
-        transport = httpx.HTTPTransport(proxy=PROXY_URL)
-        with httpx.Client(cookies=cookies, headers=HEADERS, transport=transport) as client:
-            create_response = client.get(create_url)
-            create_response.raise_for_status()
-            
-            # Parse the HTML to extract the CSRF token
-            soup = BeautifulSoup(create_response.text, 'html.parser')
-            csrf_input = soup.find('input', {'name': 'csrfmiddlewaretoken'})
-            
-            if not csrf_input:
-                print("Could not find CSRF token on the page")
-                return None
-            
-            csrf_token = csrf_input.get('value')
-            
-            # Prepare the file for upload
-            file_name = os.path.basename(file_path)
-            
-            # Prepare the form data
-            form_data = {
-                "csrfmiddlewaretoken": csrf_token,
-                "region": "uk",
-                "title": file_name,
-                "exclude_small_matches_method": "disabled",
-                "exclude_small_matches_value_words": "0",
-                "exclude_small_matches_value_percentage": "0"
-            }
-            
-            # Add the CSRF token to the headers
-            upload_headers = HEADERS.copy()
-            upload_headers["Referer"] = create_url
-            
-            # Make the POST request to upload the document
-            with open(file_path, 'rb') as f:
-                files = {"upload_document": (file_name, f, 'application/octet-stream')}
-                upload_response = client.post(
-                    create_url,
-                    headers=upload_headers,
-                    data=form_data,
-                    files=files
-                )
-            
-            # Check if the upload was successful
-            if upload_response.status_code == 200 or upload_response.status_code == 302:
-                # The upload was successful, now we need to get the submission ID
-                # We'll check the submissions page to find the most recent submission
-                time.sleep(2)  # Wait a bit for the server to process the upload
-                
-                submissions_url = "https://scopedlens.com/self-service/submissions/"
-                submissions_response = client.get(submissions_url)
-                
-                if submissions_response.status_code == 200:
-                    # Parse the HTML to find the most recent submission
-                    submissions_soup = BeautifulSoup(submissions_response.text, 'html.parser')
-                    submission_link = submissions_soup.select_one('#submission-row td:first-child a')
-                    
-                    if submission_link:
-                        href = submission_link.get('href')
-                        # Extract the UUID from the href
-                        submission_id = href.split('/')[-1]
-                        
-                        # Associate submission with account
-                        from account_manager import associate_submission_with_account
-                        associate_submission_with_account(submission_id, account["email"])
-                        
-                        print(f"Document uploaded successfully! Submission ID: {submission_id}")
-                        return submission_id
-                    else:
-                        print("Could not find submission ID in the response")
-                else:
-                    print(f"Failed to retrieve submissions list. Status code: {submissions_response.status_code}")
-            else:
-                print(f"Upload failed. Status code: {upload_response.status_code}")
-                print(f"Response content: {upload_response.text[:500]}...")
-            
+        create_response = requests.get(
+            create_url, 
+            cookies=cookies, 
+            headers=HEADERS, 
+            proxies=PROXIES,
+            timeout=30
+        )
+        create_response.raise_for_status()
+        
+        # Parse the HTML to extract the CSRF token
+        soup = BeautifulSoup(create_response.text, 'html.parser')
+        csrf_input = soup.find('input', {'name': 'csrfmiddlewaretoken'})
+        
+        if not csrf_input:
+            print("Could not find CSRF token on the page")
             return None
-    
+        
+        csrf_token = csrf_input.get('value')
+        
+        # Prepare the file for upload
+        file_name = os.path.basename(file_path)
+        
+        # Prepare the form data
+        form_data = {
+            "csrfmiddlewaretoken": csrf_token,
+            "region": "uk",
+            "title": file_name,
+            "exclude_small_matches_method": "disabled",
+            "exclude_small_matches_value_words": "0",
+            "exclude_small_matches_value_percentage": "0"
+        }
+        
+        # Add the CSRF token to the headers
+        upload_headers = HEADERS.copy()
+        upload_headers["Referer"] = create_url
+        
+        # Make the POST request to upload the document
+        with open(file_path, 'rb') as f:
+            files = {"upload_document": (file_name, f, 'application/octet-stream')}
+            upload_response = requests.post(
+                create_url,
+                headers=upload_headers,
+                data=form_data,
+                files=files,
+                cookies=cookies,
+                proxies=PROXIES,
+                timeout=60  # Longer timeout for upload
+            )
+        
+        # Check if the upload was successful
+        if upload_response.status_code == 200 or upload_response.status_code == 302:
+            # The upload was successful, now we need to get the submission ID
+            # We'll check the submissions page to find the most recent submission
+            time.sleep(2)  # Wait a bit for the server to process the upload
+            
+            submissions_url = "https://scopedlens.com/self-service/submissions/"
+            submissions_response = requests.get(
+                submissions_url,
+                cookies=cookies,
+                headers=HEADERS,
+                proxies=PROXIES,
+                timeout=30
+            )
+            
+            if submissions_response.status_code == 200:
+                # Parse the HTML to find the most recent submission
+                submissions_soup = BeautifulSoup(submissions_response.text, 'html.parser')
+                submission_link = submissions_soup.select_one('#submission-row td:first-child a')
+                
+                if submission_link:
+                    href = submission_link.get('href')
+                    # Extract the UUID from the href
+                    submission_id = href.split('/')[-1]
+                    
+                    # Associate submission with account
+                    from account_manager import associate_submission_with_account
+                    associate_submission_with_account(submission_id, account["email"])
+                    
+                    print(f"Document uploaded successfully! Submission ID: {submission_id}")
+                    return submission_id
+                else:
+                    print("Could not find submission ID in the response")
+            else:
+                print(f"Failed to retrieve submissions list. Status code: {submissions_response.status_code}")
+        else:
+            print(f"Upload failed. Status code: {upload_response.status_code}")
+            print(f"Response content: {upload_response.text[:500]}...")
+        
+        return None
+
     except Exception as e:
         print(f"An error occurred during upload: {str(e)}")
         return None
@@ -167,129 +184,145 @@ def check_submission(submission_id):
     submission_url = f"https://scopedlens.com/self-service/submission/{submission_id}"
     
     try:
-        transport = httpx.HTTPTransport(proxy=PROXY_URL)
-        with httpx.Client(cookies=cookies, headers=HEADERS, transport=transport) as client:
-            submission_response = client.get(submission_url)
+        submission_response = requests.get(
+            submission_url,
+            cookies=cookies,
+            headers=HEADERS,
+            proxies=PROXIES,
+            timeout=30
+        )
+        
+        if submission_response.status_code == 200:
+            soup = BeautifulSoup(submission_response.text, 'html.parser')
             
-            if submission_response.status_code == 200:
-                soup = BeautifulSoup(submission_response.text, 'html.parser')
-                
-                # Check for "Page not found" error
-                error_text = soup.find('h1')
-                if error_text and error_text.text.strip() == "Page not found":
-                    return {"error": "Invalid submission_id"}
-                
-                # Check for error message in the table (XPath: /html/body/div/div/div/div/table/tbody/tr[6])
-                error_rows = soup.select('table tbody tr')
-                for row in error_rows:
-                    header_cell = row.find('th')
-                    if header_cell and "Error:" in header_cell.text.strip():
-                        error_content_cell = row.find('td')
-                        if error_content_cell:
-                            error_message = error_content_cell.text.strip()
-                            return {"error": f"Document Error: {error_message}"}
-                
-                # Initialize flags to track what data is available
-                has_required_index = False
-                has_required_report = False
-                
-                # Initialize results dictionary
-                results = {
-                    "status": "loading",  # Default status
-                    "similarity_index": None if SAVE_MODE == 1 else "Not available",
-                    "ai_index": None if SAVE_MODE == 2 else "Not available",
-                    "similarity_report_url": None,
-                    "ai_report_url": None
-                }
-                
-                # Create reports directory structure
-                reports_dir = os.path.join('Reports', submission_id)
-                os.makedirs(reports_dir, exist_ok=True)
-                
-                # Extract indices based on SAVE_MODE
-                table_rows = soup.select('table tbody tr')
-                for row in table_rows:
-                    if (SAVE_MODE in [2, 3]) and "Similarity Index:" in row.get_text():
-                        td = row.find('td')
-                        if td:
-                            similarity_text = td.get_text(strip=True)
-                            similarity_match = re.search(r'(\d+)\s*%', similarity_text)
-                            if similarity_match:
-                                results['similarity_index'] = similarity_match.group(1) + '%'
-                                if SAVE_MODE == 2:
-                                    has_required_index = True
-                    
-                    if (SAVE_MODE in [1, 3]) and "AI Writing Index:" in row.get_text():
-                        td = row.find('td')
-                        if td:
-                            ai_text = td.get_text(strip=True)
-                            ai_match = re.search(r'(\d+)\s*%', ai_text)
-                            if ai_match:
-                                results['ai_index'] = ai_match.group(1) + '%'
-                                if SAVE_MODE == 1:
-                                    has_required_index = True
-                
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                
-                # Process reports based on SAVE_MODE
-                if SAVE_MODE in [2, 3]:
-                    similarity_link = soup.find('a', string=re.compile("Download Similarity Report"))
-                    if similarity_link:
-                        local_path = os.path.join(reports_dir, f"similarity_report_{timestamp}.pdf")
-                        response = client.get(similarity_link['href'])
-                        if response.status_code == 200:
-                            with open(local_path, 'wb') as f:
-                                f.write(response.content)
-                            cloudflare_url = upload_to_cloudflare(
-                                local_path,
-                                f'reports/{submission_id}/similarity_report_{timestamp}.pdf'
-                            )
-                            results['similarity_report_url'] = cloudflare_url
+            # Check for "Page not found" error
+            error_text = soup.find('h1')
+            if error_text and error_text.text.strip() == "Page not found":
+                return {"error": "Invalid submission_id"}
+            
+            # Check for error message in the table
+            error_rows = soup.select('table tbody tr')
+            for row in error_rows:
+                header_cell = row.find('th')
+                if header_cell and "Error:" in header_cell.text.strip():
+                    error_content_cell = row.find('td')
+                    if error_content_cell:
+                        error_message = error_content_cell.text.strip()
+                        return {"error": f"Document Error: {error_message}"}
+            
+            # Initialize flags to track what data is available
+            has_required_index = False
+            has_required_report = False
+            
+            # Initialize results dictionary
+            results = {
+                "status": "loading",  # Default status
+                "similarity_index": None if SAVE_MODE == 1 else "Not available",
+                "ai_index": None if SAVE_MODE == 2 else "Not available",
+                "similarity_report_url": None,
+                "ai_report_url": None
+            }
+            
+            # Create reports directory structure
+            reports_dir = os.path.join('Reports', submission_id)
+            os.makedirs(reports_dir, exist_ok=True)
+            
+            # Extract indices based on SAVE_MODE
+            table_rows = soup.select('table tbody tr')
+            for row in table_rows:
+                if (SAVE_MODE in [2, 3]) and "Similarity Index:" in row.get_text():
+                    td = row.find('td')
+                    if td:
+                        similarity_text = td.get_text(strip=True)
+                        similarity_match = re.search(r'(\d+)\s*%', similarity_text)
+                        if similarity_match:
+                            results['similarity_index'] = similarity_match.group(1) + '%'
                             if SAVE_MODE == 2:
-                                has_required_report = True
-                            os.remove(local_path)
+                                has_required_index = True
                 
-                if SAVE_MODE in [1, 3]:
-                    ai_link = soup.find('a', string=re.compile("Download AI Writing Report"))
-                    if ai_link:
-                        local_path = os.path.join(reports_dir, f"ai_report_{timestamp}.pdf")
-                        response = client.get(ai_link['href'])
-                        if response.status_code == 200:
-                            with open(local_path, 'wb') as f:
-                                f.write(response.content)
-                            cloudflare_url = upload_to_cloudflare(
-                                local_path,
-                                f'reports/{submission_id}/ai_report_{timestamp}.pdf'
-                            )
-                            results['ai_report_url'] = cloudflare_url
+                if (SAVE_MODE in [1, 3]) and "AI Writing Index:" in row.get_text():
+                    td = row.find('td')
+                    if td:
+                        ai_text = td.get_text(strip=True)
+                        ai_match = re.search(r'(\d+)\s*%', ai_text)
+                        if ai_match:
+                            results['ai_index'] = ai_match.group(1) + '%'
                             if SAVE_MODE == 1:
-                                has_required_report = True
-                            os.remove(local_path)
-                
-                # Update status based on what data is available
-                if SAVE_MODE == 3:
-                    # For mode 3, need both AI and Similarity data
-                    if (results['ai_index'] not in [None, "Not available"] and 
-                        results['similarity_index'] not in [None, "Not available"] and
-                        results['ai_report_url'] and results['similarity_report_url']):
-                        results['status'] = "done"
-                else:
-                    # For modes 1 or 2, need the respective data
-                    if has_required_index and has_required_report:
-                        results['status'] = "done"
-                
-                # Filter out None values before saving to JSON
-                results = {k: v for k, v in results.items() if v is not None}
-                
-                # Save results to JSON
-                with open(os.path.join(reports_dir, 'results.json'), 'w', encoding='utf-8') as f:
-                    json.dump(results, f, indent=4, ensure_ascii=False)
-                
-                return results
-                
+                                has_required_index = True
+            
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            
+            # Process reports based on SAVE_MODE
+            if SAVE_MODE in [2, 3]:
+                similarity_link = soup.find('a', string=re.compile("Download Similarity Report"))
+                if similarity_link:
+                    local_path = os.path.join(reports_dir, f"similarity_report_{timestamp}.pdf")
+                    response = requests.get(
+                        similarity_link['href'],
+                        cookies=cookies,
+                        headers=HEADERS,
+                        proxies=PROXIES,
+                        timeout=30
+                    )
+                    if response.status_code == 200:
+                        with open(local_path, 'wb') as f:
+                            f.write(response.content)
+                        cloudflare_url = upload_to_cloudflare(
+                            local_path,
+                            f'reports/{submission_id}/similarity_report_{timestamp}.pdf'
+                        )
+                        results['similarity_report_url'] = cloudflare_url
+                        if SAVE_MODE == 2:
+                            has_required_report = True
+                        os.remove(local_path)
+            
+            if SAVE_MODE in [1, 3]:
+                ai_link = soup.find('a', string=re.compile("Download AI Writing Report"))
+                if ai_link:
+                    local_path = os.path.join(reports_dir, f"ai_report_{timestamp}.pdf")
+                    response = requests.get(
+                        ai_link['href'],
+                        cookies=cookies,
+                        headers=HEADERS,
+                        proxies=PROXIES,
+                        timeout=30
+                    )
+                    if response.status_code == 200:
+                        with open(local_path, 'wb') as f:
+                            f.write(response.content)
+                        cloudflare_url = upload_to_cloudflare(
+                            local_path,
+                            f'reports/{submission_id}/ai_report_{timestamp}.pdf'
+                        )
+                        results['ai_report_url'] = cloudflare_url
+                        if SAVE_MODE == 1:
+                            has_required_report = True
+                        os.remove(local_path)
+            
+            # Update status based on what data is available
+            if SAVE_MODE == 3:
+                # For mode 3, need both AI and Similarity data
+                if (results['ai_index'] not in [None, "Not available"] and 
+                    results['similarity_index'] not in [None, "Not available"] and
+                    results['ai_report_url'] and results['similarity_report_url']):
+                    results['status'] = "done"
             else:
-                return {"error": f"HTTP Error: {submission_response.status_code}"}
-    
+                # For modes 1 or 2, need the respective data
+                if has_required_index and has_required_report:
+                    results['status'] = "done"
+            
+            # Filter out None values before saving to JSON
+            results = {k: v for k, v in results.items() if v is not None}
+            
+            # Save results to JSON
+            with open(os.path.join(reports_dir, 'results.json'), 'w', encoding='utf-8') as f:
+                json.dump(results, f, indent=4, ensure_ascii=False)
+            
+            return results
+            
+        else:
+            return {"error": f"HTTP Error: {submission_response.status_code}"}
+
     except Exception as e:
         return {"error": str(e)}
 
@@ -301,40 +334,51 @@ def download_reports(submission_id, results):
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
-    transport = httpx.HTTPTransport(proxy=PROXY_URL)
-    with httpx.Client(cookies=cookies, headers=HEADERS, transport=transport) as client:
-        if "similarity_url" in results and results["similarity_url"]:
-            try:
-                similarity_report_response = client.get(results["similarity_url"])
-                if similarity_report_response.status_code == 200:
-                    similarity_report_filename = f"similarity_report_{submission_id}_{timestamp}.pdf"
-                    with open(similarity_report_filename, "wb") as file:
-                        file.write(similarity_report_response.content)
-                    print(f"Similarity Report downloaded to: {os.path.abspath(similarity_report_filename)}")
-                else:
-                    print(f"Failed to download Similarity Report. Status code: {similarity_report_response.status_code}")
-            except Exception as e:
-                print(f"Error downloading Similarity Report: {str(e)}")
-        else:
-            print("Similarity Report URL not available")
-        
-        if "ai_url" in results and results["ai_url"]:
-            try:
-                ai_report_response = client.get(results["ai_url"])
-                if ai_report_response.status_code == 200:
-                    ai_report_filename = f"ai_writing_report_{submission_id}_{timestamp}.pdf"
-                    with open(ai_report_filename, "wb") as file:
-                        file.write(ai_report_response.content)
-                    print(f"AI Writing Report downloaded to: {os.path.abspath(ai_report_filename)}")
-                else:
-                    print(f"Failed to download AI Writing Report. Status code: {ai_report_response.status_code}")
-            except Exception as e:
-                print(f"Error downloading AI Writing Report: {str(e)}")
-        else:
-            print("AI Writing Report URL not available")
+    # Fix the key names in the if conditions
+    if "similarity_report_url" in results and results["similarity_report_url"]:
+        try:
+            similarity_report_response = requests.get(
+                results["similarity_report_url"],
+                cookies=cookies,
+                headers=HEADERS,
+                proxies=PROXIES,
+                timeout=30
+            )
+            if similarity_report_response.status_code == 200:
+                similarity_report_filename = f"similarity_report_{submission_id}_{timestamp}.pdf"
+                with open(similarity_report_filename, "wb") as file:
+                    file.write(similarity_report_response.content)
+                print(f"Similarity Report downloaded to: {os.path.abspath(similarity_report_filename)}")
+            else:
+                print(f"Failed to download Similarity Report. Status code: {similarity_report_response.status_code}")
+        except Exception as e:
+            print(f"Error downloading Similarity Report: {str(e)}")
+    else:
+        print("Similarity Report URL not available")
+    
+    if "ai_report_url" in results and results["ai_report_url"]:
+        try:
+            ai_report_response = requests.get(
+                results["ai_report_url"],
+                cookies=cookies,
+                headers=HEADERS,
+                proxies=PROXIES,
+                timeout=30
+            )
+            if ai_report_response.status_code == 200:
+                ai_report_filename = f"ai_writing_report_{submission_id}_{timestamp}.pdf"
+                with open(ai_report_filename, "wb") as file:
+                    file.write(ai_report_response.content)
+                print(f"AI Writing Report downloaded to: {os.path.abspath(ai_report_filename)}")
+            else:
+                print(f"Failed to download AI Writing Report. Status code: {ai_report_response.status_code}")
+        except Exception as e:
+            print(f"Error downloading AI Writing Report: {str(e)}")
+    else:
+        print("AI Writing Report URL not available")
 
 def check_quota():
-    """Check the remaining quota from ScopedLens for all accounts using a more robust approach"""
+    """Check the remaining quota from ScopedLens for all accounts"""
     create_url = "https://scopedlens.com/self-service/submission/create"
     all_accounts = get_all_accounts()
     
@@ -350,24 +394,14 @@ def check_quota():
         try:
             cookies = account["cookies"]
             
-            # Try a different approach - use requests library instead of httpx
-            # This might handle the encoding differently
-            import requests
-            
-            # Set up the proxy
-            proxies = {
-                "http": PROXY_URL,
-                "https": PROXY_URL
-            }
-            
-            print(f"DEBUG: Making request with requests library to {create_url}")
+            print(f"DEBUG: Making request to {create_url}")
             
             # Make the request with requests library
             response = requests.get(
                 create_url,
                 cookies=cookies,
                 headers=HEADERS,
-                proxies=proxies,
+                proxies=PROXIES,
                 timeout=30
             )
             
@@ -375,90 +409,58 @@ def check_quota():
             print(f"DEBUG: Response encoding: {response.encoding}")
             
             if response.status_code == 200:
+                # Force UTF-8 encoding with error replacement
+                response.encoding = 'utf-8'
+                
                 # Save raw content for debugging
-                raw_content = response.content
-                debug_url = save_debug_html(raw_content.decode('utf-8', errors='replace'), account["email"])
+                debug_url = save_debug_html(response.text, account["email"])
                 if debug_url:
                     debug_urls.append({"email": account["email"], "debug_url": debug_url})
                     print(f"DEBUG: Saved HTML for {account['email']} at {debug_url}")
                 
-                # Try a completely different approach - use OCR-like pattern matching
-                # Look for patterns that might represent quota numbers
+                # Parse with BeautifulSoup
+                soup = BeautifulSoup(response.text, 'html.parser')
                 
-                # Convert to string with error replacement
-                text_content = str(raw_content)
+                # Try different methods to find quota
+                quota = None
                 
-                print("DEBUG: Trying pattern matching approach")
-                
-                # Look for patterns like "X/Y" where X and Y are numbers
-                # This is more resilient to encoding issues
-                patterns = [
-                    r'(\d+)\s*/\s*(\d+)',  # Standard X/Y format
-                    r'(\d+)\s*of\s*(\d+)',  # X of Y format
-                    r'Quota[^\d]*(\d+)[^\d]*(\d+)',  # Any numbers near "Quota"
-                    r'(\d+)[^\d]{1,10}(\d+)'  # Any two numbers close to each other
-                ]
-                
-                for pattern in patterns:
-                    print(f"DEBUG: Trying pattern: {pattern}")
-                    matches = re.findall(pattern, text_content)
-                    print(f"DEBUG: Found matches: {matches}")
+                # Method 1: Look for h6 containing "Your Quota"
+                quota_element = soup.find('h6', string=lambda text: text and 'Quota' in text)
+                if quota_element:
+                    quota_text = quota_element.text.strip()
+                    print(f"DEBUG: Found quota element: {quota_text}")
                     
-                    if matches:
-                        # Use the first match that looks reasonable
-                        for match in matches:
-                            if isinstance(match, tuple) and len(match) >= 2:
-                                try:
-                                    used = int(match[0])
-                                    limit = int(match[1])
-                                    
-                                    # Sanity check - used should be <= limit and limit should be reasonable
-                                    if 0 <= used <= limit and limit <= 1000:
-                                        total_used += used
-                                        total_limit += limit
-                                        quota = f"{used}/{limit}"
-                                        print(f"DEBUG: Found valid quota: {quota}")
-                                        break
-                                    else:
-                                        print(f"DEBUG: Numbers don't make sense: {used}/{limit}")
-                                except ValueError:
-                                    print(f"DEBUG: Couldn't convert to integers: {match}")
-                        else:
-                            continue  # No valid match found, try next pattern
-                        break  # Valid match found, exit pattern loop
+                    # Extract the numbers using regex
+                    quota_match = re.search(r'(\d+)\s*/\s*(\d+)', quota_text)
+                    if quota_match:
+                        used = int(quota_match.group(1))
+                        limit = int(quota_match.group(2))
+                        total_used += used
+                        total_limit += limit
+                        quota = f"{used}/{limit}"
                 else:
-                    # If no pattern matched, try a last resort approach
-                    print("DEBUG: No patterns matched, trying last resort")
-                    
-                    # Look for any numbers in the content
-                    all_numbers = re.findall(r'\d+', text_content)
-                    print(f"DEBUG: All numbers found: {all_numbers}")
-                    
-                    if len(all_numbers) >= 2:
-                        # Try to find numbers that might represent quota
-                        # Heuristic: Look for numbers that are close to each other
-                        for i in range(len(all_numbers) - 1):
-                            used = int(all_numbers[i])
-                            limit = int(all_numbers[i+1])
-                            
-                            # Sanity check - used should be <= limit and limit should be reasonable
+                    print("DEBUG: Could not find h6 with Quota text")
+                
+                # Method 2: Try a broader search
+                if not quota:
+                    all_text = soup.get_text()
+                    quota_matches = re.findall(r'(\d+)\s*/\s*(\d+)', all_text)
+                    if quota_matches:
+                        for match in quota_matches:
+                            used = int(match[0])
+                            limit = int(match[1])
+                            # Validate that the ratio makes sense
                             if 0 <= used <= limit and limit <= 1000:
                                 total_used += used
                                 total_limit += limit
                                 quota = f"{used}/{limit}"
-                                print(f"DEBUG: Using adjacent numbers as quota: {quota}")
+                                print(f"DEBUG: Found quota via whole-page search: {quota}")
                                 break
-                        else:
-                            # If no adjacent numbers make sense, just use the first two
-                            used = int(all_numbers[0])
-                            limit = int(all_numbers[1])
-                            total_used += used
-                            total_limit += limit
-                            quota = f"{used}/{limit}"
-                            print(f"DEBUG: Using first two numbers as quota: {quota}")
-                    else:
-                        quota = "No numbers found"
-                        print("DEBUG: No numbers found in content")
+                
+                # If we still don't have a quota
+                if not quota:
+                    quota = "Could not parse quota"
+                    print("DEBUG: Failed to find quota information")
             else:
                 quota = f"Error: Could not fetch quota (HTTP {response.status_code})"
                 print(f"DEBUG: HTTP error {response.status_code}")
@@ -577,13 +579,14 @@ def main_menu():
                             if "ai_index" in results:
                                 print(f"AI Writing Index: {results['ai_index']}")
                             
-                            if "similarity_url" in results and results["similarity_url"]:
-                                print(f"Similarity Report URL: {results['similarity_url']}")
+                            # Fixed key names here
+                            if "similarity_report_url" in results and results["similarity_report_url"]:
+                                print(f"Similarity Report URL: {results['similarity_report_url']}")
                             else:
                                 print("Similarity Report not available yet")
                             
-                            if "ai_url" in results and results["ai_url"]:
-                                print(f"AI Writing Report URL: {results['ai_url']}")
+                            if "ai_report_url" in results and results["ai_report_url"]:
+                                print(f"AI Writing Report URL: {results['ai_report_url']}")
                             else:
                                 print("AI Writing Report not available yet")
                             
