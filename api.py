@@ -36,9 +36,13 @@ class AccountQuota(BaseModel):
     quota: str
     debug_url: Optional[str] = None
 
-# Create a simpler model for quota response
+# Create a simpler model for quota response that ONLY has the remaining field
 class SimpleQuotaResponse(BaseModel):
     remaining: int
+    
+    class Config:
+        # This ensures the model only outputs fields explicitly set
+        extra = "ignore"
 
 # Endpoints
 @app.post("/submit", response_model=SubmitResponse)
@@ -133,8 +137,9 @@ async def get_quota(include_debug: bool = False):
     try:
         quota_data = check_all_quotas()
         
-        # Always return only the remaining field
-        return {"remaining": quota_data["remaining"]}
+        # Return only the remaining field as a SimpleQuotaResponse object
+        # This will ensure no extra fields
+        return SimpleQuotaResponse(remaining=quota_data["remaining"])
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error checking quota: {str(e)}")
@@ -148,7 +153,7 @@ async def root():
         "endpoints": {
             "POST /submit": "Submit a document URL for processing",
             "GET /receive/{submission_id}": "Check status of a submission",
-            "GET /quota": "Check remaining quota (add ?include_debug=true for detailed info)"
+            "GET /quota": "Check remaining quota for all accounts"
         }
     }
 

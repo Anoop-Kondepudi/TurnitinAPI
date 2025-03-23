@@ -1,4 +1,4 @@
-import httpx  # Replace requests with httpx
+import httpx
 import os
 import re
 import time
@@ -322,7 +322,30 @@ def check_submission(submission_id, temp_dir=None):
         os.makedirs(temp_dir, exist_ok=True)
     
     # Get the account associated with this submission
-    account = get_account_for_submission(submission_id)
+    try:
+        from account_manager import get_submission_to_account_map
+        submission_account_map = get_submission_to_account_map()
+        
+        # First try to get the account directly associated with this submission
+        if submission_id in submission_account_map:
+            account_email = submission_account_map[submission_id]["account_email"]
+            print(f"Found associated account: {account_email} for submission: {submission_id}")
+            account = get_account_for_submission(submission_id)
+            if account["email"] != account_email:
+                print(f"WARNING: Account mismatch! Map says: {account_email}, got: {account['email']}")
+                # Try to get the account by email instead
+                from account_manager import get_account_by_email
+                corrected_account = get_account_by_email(account_email)
+                if corrected_account:
+                    account = corrected_account
+                    print(f"Corrected to use account: {account['email']}")
+        else:
+            print(f"No account mapping found for submission: {submission_id}")
+            account = get_account_for_submission(submission_id)
+    except Exception as e:
+        print(f"Error retrieving account mapping: {str(e)}")
+        account = get_account_for_submission(submission_id)
+    
     cookies = account["cookies"]
     print(f"Using account: {account['email']}")
     
