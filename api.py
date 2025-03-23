@@ -118,6 +118,7 @@ async def get_submission_status(submission_id: str):
             if "ai_index" in results:
                 response["ai_index"] = results["ai_index"]
                 
+            # Use the correct key for AI report URL
             if "ai_report_url" in results:
                 response["ai_report_url"] = results["ai_report_url"]
                 

@@ -329,12 +329,40 @@ def check_submission(submission_id, temp_dir=None):
     submission_url = f"https://scopedlens.com/self-service/submission/{submission_id}"
     
     try:
-        transport = httpx.HTTPTransport(proxy=PROXY_URL)
-        with httpx.Client(cookies=cookies, headers=HEADERS, transport=transport) as client:
-            submission_response = client.get(submission_url)
+        # Create a client with explicit decompression and timeout settings
+        transport = httpx.HTTPTransport(
+            proxy=PROXY_URL,
+            retries=3
+        )
+        
+        with httpx.Client(
+            cookies=cookies, 
+            headers=HEADERS, 
+            transport=transport,
+            timeout=30.0,  # Increase timeout
+            follow_redirects=True  # Follow redirects automatically
+        ) as client:
+            # Explicitly set Accept-Encoding to handle compression properly
+            headers_with_encoding = HEADERS.copy()
+            headers_with_encoding["Accept-Encoding"] = "gzip, deflate"
+            
+            submission_response = client.get(
+                submission_url,
+                headers=headers_with_encoding
+            )
+            
+            # Force encoding to UTF-8 if needed
+            submission_response.encoding = "utf-8"
+            
+            # Get the decoded content
+            html_content = submission_response.text
+            
+            # Save HTML for debugging
+            debug_url = save_debug_html(html_content, f"submission_{submission_id}_{account['email']}")
+            print(f"DEBUG HTML for submission check: {debug_url}")
             
             if submission_response.status_code == 200:
-                soup = BeautifulSoup(submission_response.text, 'html.parser')
+                soup = BeautifulSoup(html_content, 'html.parser')
                 
                 # Check for "Page not found" error
                 error_text = soup.find('h1')
@@ -393,36 +421,60 @@ def check_submission(submission_id, temp_dir=None):
                 if SAVE_MODE in [2, 3]:
                     similarity_link = soup.find('a', string=re.compile("Download Similarity Report"))
                     if similarity_link:
+                        href = similarity_link.get('href')
+                        print(f"Found similarity report link: {href}")
                         local_path = os.path.join(temp_dir, f"similarity_report_{timestamp}.pdf")
-                        response = client.get(similarity_link['href'])
-                        if response.status_code == 200:
-                            with open(local_path, 'wb') as f:
-                                f.write(response.content)
-                            cloudflare_url = upload_to_cloudflare(
-                                local_path,
-                                f'reports/{submission_id}/similarity_report_{timestamp}.pdf'
+                        try:
+                            # Use the same robust client to download the report
+                            response = client.get(
+                                href, 
+                                headers=headers_with_encoding,
+                                timeout=60.0  # Longer timeout for downloading reports
                             )
-                            results['similarity_report_url'] = cloudflare_url
-                            if SAVE_MODE == 2:
-                                has_required_report = True
-                            os.remove(local_path)
+                            if response.status_code == 200:
+                                with open(local_path, 'wb') as f:
+                                    f.write(response.content)
+                                cloudflare_url = upload_to_cloudflare(
+                                    local_path,
+                                    f'reports/{submission_id}/similarity_report_{timestamp}.pdf'
+                                )
+                                results['similarity_report_url'] = cloudflare_url
+                                if SAVE_MODE == 2:
+                                    has_required_report = True
+                                os.remove(local_path)
+                            else:
+                                print(f"Failed to download similarity report: HTTP {response.status_code}")
+                        except Exception as e:
+                            print(f"Error downloading similarity report: {str(e)}")
                 
                 if SAVE_MODE in [1, 3]:
                     ai_link = soup.find('a', string=re.compile("Download AI Writing Report"))
                     if ai_link:
+                        href = ai_link.get('href')
+                        print(f"Found AI report link: {href}")
                         local_path = os.path.join(temp_dir, f"ai_report_{timestamp}.pdf")
-                        response = client.get(ai_link['href'])
-                        if response.status_code == 200:
-                            with open(local_path, 'wb') as f:
-                                f.write(response.content)
-                            cloudflare_url = upload_to_cloudflare(
-                                local_path,
-                                f'reports/{submission_id}/ai_report_{timestamp}.pdf'
+                        try:
+                            # Use the same robust client to download the report
+                            response = client.get(
+                                href,
+                                headers=headers_with_encoding,
+                                timeout=60.0  # Longer timeout for downloading reports
                             )
-                            results['ai_report_url'] = cloudflare_url
-                            if SAVE_MODE == 1:
-                                has_required_report = True
-                            os.remove(local_path)
+                            if response.status_code == 200:
+                                with open(local_path, 'wb') as f:
+                                    f.write(response.content)
+                                cloudflare_url = upload_to_cloudflare(
+                                    local_path,
+                                    f'reports/{submission_id}/ai_report_{timestamp}.pdf'
+                                )
+                                results['ai_report_url'] = cloudflare_url
+                                if SAVE_MODE == 1:
+                                    has_required_report = True
+                                os.remove(local_path)
+                            else:
+                                print(f"Failed to download AI report: HTTP {response.status_code}")
+                        except Exception as e:
+                            print(f"Error downloading AI report: {str(e)}")
                 
                 # Update status based on what data is available
                 if SAVE_MODE == 3:
@@ -443,10 +495,27 @@ def check_submission(submission_id, temp_dir=None):
                 return results
                 
             else:
-                return {"error": f"HTTP Error: {submission_response.status_code}"}
+                error_message = f"HTTP Error: {submission_response.status_code}"
+                print(error_message)
+                print(f"Response content: {html_content[:500]}...")
+                return {"error": error_message}
     
+    except httpx.HTTPStatusError as e:
+        error_message = f"HTTP status error checking submission: {e.response.status_code}"
+        print(error_message)
+        print(f"Response content: {e.response.text[:500]}...")
+        # Save debug HTML for HTTP error
+        debug_url = save_debug_html(e.response.text, f"submission_http_error_{submission_id}")
+        print(f"HTTP error debug HTML: {debug_url}")
+        return {"error": error_message}
+    except httpx.RequestError as e:
+        error_message = f"Request error checking submission: {str(e)}"
+        print(error_message)
+        return {"error": error_message}
     except Exception as e:
-        return {"error": str(e)}
+        error_message = f"Error checking submission: {str(e)}"
+        print(error_message)
+        return {"error": error_message}
 
 def download_reports(submission_id, results):
     """Download the reports for a submission to /tmp directory"""
@@ -458,9 +527,9 @@ def download_reports(submission_id, results):
     
     transport = httpx.HTTPTransport(proxy=PROXY_URL)
     with httpx.Client(cookies=cookies, headers=HEADERS, transport=transport) as client:
-        if results["similarity_url"]:
+        if 'similarity_report_url' in results and results["similarity_report_url"]:
             try:
-                similarity_report_response = client.get(results["similarity_url"])
+                similarity_report_response = client.get(results["similarity_report_url"])
                 if similarity_report_response.status_code == 200:
                     similarity_report_filename = os.path.join(TMP_DIR, f"similarity_report_{submission_id}_{timestamp}.pdf")
                     with open(similarity_report_filename, "wb") as file:
@@ -473,9 +542,9 @@ def download_reports(submission_id, results):
         else:
             print("Similarity Report URL not available")
         
-        if results["ai_url"]:
+        if 'ai_report_url' in results and results["ai_report_url"]:
             try:
-                ai_report_response = client.get(results["ai_url"])
+                ai_report_response = client.get(results["ai_report_url"])
                 if ai_report_response.status_code == 200:
                     ai_report_filename = os.path.join(TMP_DIR, f"ai_writing_report_{submission_id}_{timestamp}.pdf")
                     with open(ai_report_filename, "wb") as file:
@@ -667,16 +736,19 @@ def main_menu():
                         
                         if results:
                             print("\nResults:")
-                            print(f"Similarity Index: {results['similarity_index']}")
-                            print(f"AI Writing Index: {results['ai_index']}")
+                            if 'similarity_index' in results:
+                                print(f"Similarity Index: {results['similarity_index']}")
+                            if 'ai_index' in results:
+                                print(f"AI Writing Index: {results['ai_index']}")
                             
-                            if results["similarity_url"]:
-                                print(f"Similarity Report URL: {results['similarity_url']}")
+                            # Fix key names for URLs
+                            if "similarity_report_url" in results:
+                                print(f"Similarity Report URL: {results['similarity_report_url']}")
                             else:
                                 print("Similarity Report not available yet")
                             
-                            if results["ai_url"]:
-                                print(f"AI Writing Report URL: {results['ai_url']}")
+                            if "ai_report_url" in results:
+                                print(f"AI Writing Report URL: {results['ai_report_url']}")
                             else:
                                 print("AI Writing Report not available yet")
                             
