@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header, Depends
 from pydantic import BaseModel, HttpUrl
 from typing import Optional, List, Dict, Any
 import uvicorn
@@ -12,11 +12,23 @@ import urllib.parse
 # Import functions from existing scripts
 from backend import download_file, upload_document, check_submission, check_quota as check_all_quotas, TMP_DIR
 
+# Auth code - hardcoded for simplicity
+AUTH_CODE = "ryne_ai"
+
 app = FastAPI(
     title="Turnitin API",
     description="API for checking documents with Turnitin",
     version="1.0.0"
 )
+
+# Function to verify the auth code
+async def verify_auth(x_auth_code: str = Header(None)):
+    if x_auth_code != AUTH_CODE:
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized: Invalid or missing authentication code"
+        )
+    return x_auth_code
 
 # Models for request/response - updated
 class SubmitRequest(BaseModel):
@@ -44,8 +56,8 @@ class SimpleQuotaResponse(BaseModel):
         # This ensures the model only outputs fields explicitly set
         extra = "ignore"
 
-# Endpoints
-@app.post("/submit", response_model=SubmitResponse)
+# Endpoints - now with auth dependency
+@app.post("/submit", response_model=SubmitResponse, dependencies=[Depends(verify_auth)])
 async def submit_document(request: SubmitRequest):
     """Submit a document for processing"""
     # Extract original filename from URL
@@ -97,7 +109,7 @@ async def submit_document(request: SubmitRequest):
             os.remove(temp_filepath)
         raise HTTPException(status_code=500, detail=f"Error processing submission: {str(e)}")
 
-@app.get("/receive/{submission_id}")
+@app.get("/receive/{submission_id}", dependencies=[Depends(verify_auth)])
 async def get_submission_status(submission_id: str):
     """Check the status of a submission"""
     try:
@@ -131,7 +143,7 @@ async def get_submission_status(submission_id: str):
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
-@app.get("/quota", response_model=SimpleQuotaResponse)
+@app.get("/quota", response_model=SimpleQuotaResponse, dependencies=[Depends(verify_auth)])
 async def get_quota(include_debug: bool = False):
     """Check remaining quota across all accounts"""
     try:
@@ -144,7 +156,7 @@ async def get_quota(include_debug: bool = False):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error checking quota: {str(e)}")
 
-# Root endpoint with API info remains the same
+# Root endpoint with API info - no auth required for documentation
 @app.get("/")
 async def root():
     return {
@@ -154,7 +166,8 @@ async def root():
             "POST /submit": "Submit a document URL for processing",
             "GET /receive/{submission_id}": "Check status of a submission",
             "GET /quota": "Check remaining quota for all accounts"
-        }
+        },
+        "authentication": "All endpoints (except this one) require the X-Auth-Code header"
     }
 
 # Run the API server when the script is executed directly

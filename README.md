@@ -17,7 +17,7 @@ This application is designed to be deployed on Render.
 None required for basic functionality.
 
 
-### Usuage: 
+### Usage: 
 
 Here are the proper curl command templates for each endpoint in your API:
 
@@ -25,6 +25,7 @@ Here are the proper curl command templates for each endpoint in your API:
 
 curl -X POST "https://turnitinapi.onrender.com/submit" \
   -H "Content-Type: application/json" \
+  -H "X-Auth-Code: ryne_ai" \
   -d '{"url": "https://example.com/path/to/document.pdf"}'
 
 Response example:
@@ -33,7 +34,8 @@ Response example:
 
 2. Check submission status
 
-curl -X GET "https://turnitinapi.onrender.com/receive/12345678-1234-1234-1234-123456789abc"
+curl -X GET "https://turnitinapi.onrender.com/receive/12345678-1234-1234-1234-123456789abc" \
+  -H "X-Auth-Code: ryne_ai"
 
 Response examples:
 
@@ -52,8 +54,9 @@ Response examples:
 
 3. Check quota
 
-curl -X GET "https://turnitinapi.onrender.com/quota"
+curl -X GET "https://turnitinapi.onrender.com/quota" \
+  -H "X-Auth-Code: ryne_ai"
 
 Response example:
 
-curl -X GET "https://turnitinapi.onrender.com/"
+{"remaining": 42}
