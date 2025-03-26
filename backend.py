@@ -432,7 +432,8 @@ def check_submission(submission_id, temp_dir=None):
                         td = row.find('td')
                         if td:
                             ai_text = td.get_text(strip=True)
-                            ai_match = re.search(r'(\d+)\s*%', ai_text)
+                            # Update regex to also match asterisk (*) as a valid value
+                            ai_match = re.search(r'([*\d]+)\s*%', ai_text)
                             if ai_match:
                                 results['ai_index'] = ai_match.group(1) + '%'
                                 if SAVE_MODE == 1:

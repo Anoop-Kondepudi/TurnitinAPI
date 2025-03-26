@@ -2,6 +2,7 @@ import os
 import json
 from datetime import datetime
 import logging
+import random
 from accounts import get_accounts, save_accounts
 
 # Setup logging
@@ -12,101 +13,83 @@ logger = logging.getLogger(__name__)
 # Expire: April 20, 2025.
 
 def init_accounts():
-    """Initialize the accounts database - now just checks if it's accessible"""
-    try:
-        accounts_data = get_accounts()
-        logger.info(f"Accounts initialized with {len(accounts_data.get('accounts', []))} accounts")
-        return True
-    except Exception as e:
-        logger.error(f"Error initializing accounts database: {str(e)}")
-        return False
+    """Initialize the accounts"""
+    accounts_data = get_accounts()
+    logger.info(f"Accounts initialized with {len(accounts_data['accounts'])} accounts")
+    return accounts_data
 
 def get_account_for_upload():
-    """Get the next account to use for upload (rotation)"""
-    try:
-        accounts_data = get_accounts()
-        
-        current_index = accounts_data["current_account_index"]
-        account = accounts_data["accounts"][current_index]
-        
-        # Rotate to next account
-        next_index = (current_index + 1) % len(accounts_data["accounts"])
-        accounts_data["current_account_index"] = next_index
-        
-        save_accounts(accounts_data)
-        
-        logger.info(f"Got account for upload: {account['email']}, next index: {next_index}")
-        return account
-    except Exception as e:
-        logger.error(f"Error getting account for upload: {str(e)}")
-        # Fallback to first account in case of error
-        return get_account_by_index(0)
-
-def get_account_by_index(index):
-    """Get an account by its index"""
-    try:
-        accounts_data = get_accounts()
-        
-        if 0 <= index < len(accounts_data["accounts"]):
-            return accounts_data["accounts"][index]
-        else:
-            logger.warning(f"Account index {index} out of range")
-            return accounts_data["accounts"][0] if accounts_data["accounts"] else None
-    except Exception as e:
-        logger.error(f"Error getting account by index: {str(e)}")
+    """Get the next account to use for uploading"""
+    accounts_data = get_accounts()
+    accounts = accounts_data["accounts"]
+    current_index = accounts_data.get("current_account_index", 0)
+    
+    if not accounts:
+        logger.error("No accounts available")
         return None
+    
+    # Use the current account
+    account = accounts[current_index]
+    
+    # Update the index for next time
+    next_index = (current_index + 1) % len(accounts)
+    accounts_data["current_account_index"] = next_index
+    save_accounts(accounts_data)
+    
+    return account
+
+def get_account_for_submission(submission_id):
+    """Get an account to use for checking a submission"""
+    accounts_data = get_accounts()
+    accounts = accounts_data["accounts"]
+    submissions = accounts_data.get("submissions", {})
+    
+    # If there are no accounts, return None
+    if not accounts:
+        logger.error("No accounts available")
+        return None
+    
+    # If this submission is associated with an account, use that account
+    if submission_id in submissions:
+        account_email = submissions[submission_id]["account_email"]
+        for account in accounts:
+            if account["email"] == account_email:
+                return account
+    
+    # Otherwise, use a random account
+    return random.choice(accounts)
+
+def get_account_by_email(email):
+    """Get an account by email"""
+    accounts_data = get_accounts()
+    for account in accounts_data["accounts"]:
+        if account["email"] == email:
+            return account
+    return None
 
 def get_all_accounts():
     """Get all accounts"""
-    try:
-        accounts_data = get_accounts()
-        return accounts_data["accounts"]
-    except Exception as e:
-        logger.error(f"Error getting all accounts: {str(e)}")
-        return []
+    accounts_data = get_accounts()
+    return accounts_data["accounts"]
 
 def associate_submission_with_account(submission_id, account_email):
-    """Associate a submission ID with an account"""
-    try:
-        accounts_data = get_accounts()
-        
-        # Store submission association with timestamp
-        accounts_data["submissions"][submission_id] = {
-            "account_email": account_email,
-            "timestamp": datetime.now().isoformat()
-        }
-        
-        save_accounts(accounts_data)
-        logger.info(f"Associated submission {submission_id} with account {account_email}")
-        return True
-    except Exception as e:
-        logger.error(f"Error associating submission with account: {str(e)}")
-        return False
+    """Associate a submission with an account"""
+    accounts_data = get_accounts()
+    if "submissions" not in accounts_data:
+        accounts_data["submissions"] = {}
+    
+    accounts_data["submissions"][submission_id] = {
+        "account_email": account_email,
+        "timestamp": datetime.now().isoformat()
+    }
+    
+    save_accounts(accounts_data)
+    logger.info(f"Submission {submission_id} associated with account {account_email}")
 
-def get_account_for_submission(submission_id):
-    """Get the account associated with a submission ID"""
-    try:
-        accounts_data = get_accounts()
-        
-        # Look up the submission
-        if submission_id in accounts_data["submissions"]:
-            account_email = accounts_data["submissions"][submission_id]["account_email"]
-            
-            # Find account with this email
-            for account in accounts_data["accounts"]:
-                if account["email"] == account_email:
-                    return account
-            
-            # If account with email wasn't found, try to parse email to get index
-            logger.warning(f"Could not find account with email {account_email}, using fallback method")
-            return get_account_by_index(0)
-        else:
-            # If submission not in database, use the first account
-            logger.warning(f"Submission ID {submission_id} not found in database")
-            return get_account_by_index(0)
-    except Exception as e:
-        logger.error(f"Error getting account for submission: {str(e)}")
-        return get_account_by_index(0)
+def get_submission_to_account_map():
+    """Get the mapping of submissions to accounts"""
+    accounts_data = get_accounts()
+    return accounts_data.get("submissions", {})
 
-# Initialize accounts on module import
+# Initialize accounts on module load
 init_accounts()

@@ -23,7 +23,7 @@ Here are the proper curl command templates for each endpoint in your API:
 
 1. Submit a document
 
-curl -X POST "https://turnitinapi.onrender.com/submit" \
+curl -X POST "https://turnitin.vercel.app/submit" \
   -H "Content-Type: application/json" \
   -H "X-Auth-Code: ryne_ai" \
   -d '{"url": "https://example.com/path/to/document.pdf"}'
@@ -34,7 +34,7 @@ Response example:
 
 2. Check submission status
 
-curl -X GET "https://turnitinapi.onrender.com/receive/12345678-1234-1234-1234-123456789abc" \
+curl -X GET "https://turnitin.vercel.app/receive/{submission_id}" \
   -H "X-Auth-Code: ryne_ai"
 
 Response examples:
@@ -54,7 +54,7 @@ Response examples:
 
 3. Check quota
 
-curl -X GET "https://turnitinapi.onrender.com/quota" \
+curl -X GET "https://turnitin.vercel.app/quota" \
   -H "X-Auth-Code: ryne_ai"
 
 Response example:
