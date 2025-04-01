@@ -35,7 +35,7 @@ HEADERS = {
 }
 
 # Add this near the top with other constants
-SAVE_MODE = 1  # 1 = AI only, 2 = Similarity only, 3 = Both
+SAVE_MODE = 3  # 1 = AI only, 2 = Similarity only, 3 = Both
 
 # Add a constant for temp directory
 TMP_DIR = "/tmp"  # Use Vercel's tmp directory for serverless functions

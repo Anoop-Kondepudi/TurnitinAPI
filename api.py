@@ -41,6 +41,8 @@ class StatusResponse(BaseModel):
     status: str
     ai_index: Optional[str] = None
     ai_report_url: Optional[str] = None
+    similarity_index: Optional[str] = None
+    similarity_report_url: Optional[str] = None
     error: Optional[str] = None
 
 class AccountQuota(BaseModel):
@@ -124,16 +126,21 @@ async def get_submission_status(submission_id: str):
         if results["status"] == "loading":
             return {"status": "loading"}
         
-        # If status is done, return only the AI index and report URL
+        # If status is done, return both AI and Similarity data if available
         if results["status"] == "done":
             response = {"status": "done"}
             
+            # Include AI data if available
             if "ai_index" in results:
                 response["ai_index"] = results["ai_index"]
-                
-            # Use the correct key for AI report URL
             if "ai_report_url" in results:
                 response["ai_report_url"] = results["ai_report_url"]
+            
+            # Include Similarity data if available
+            if "similarity_index" in results:
+                response["similarity_index"] = results["similarity_index"]
+            if "similarity_report_url" in results:
+                response["similarity_report_url"] = results["similarity_report_url"]
                 
             return response
         
