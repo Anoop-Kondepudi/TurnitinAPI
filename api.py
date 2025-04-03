@@ -78,6 +78,10 @@ async def submit_document(request: SubmitRequest):
     if not extension:
         extension = '.pdf'  # Default extension if none found
     
+    # Truncate the base_name if it's too long (max 50 chars)
+    if len(base_name) > 50:
+        base_name = base_name[:47] + "..."
+    
     # Use original filename with UUID suffix for uniqueness
     request_id = uuid.uuid4()
     temp_filename = f"{base_name}_{request_id}{extension}"

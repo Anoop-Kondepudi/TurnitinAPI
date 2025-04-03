@@ -85,13 +85,6 @@ def create_default_accounts():
     """Create default accounts data structure"""
     default_accounts = [
         {
-            "email": "cloakediscracked@gmail.com",
-            "cookies": {
-                "csrftoken": "TAKoXUVE9pEFbvt55JmPMIrzf47hMn3J",
-                "sessionid": "rvlbe4rj9wld5aak4sgutqrwb024ompk"
-            }
-        },
-        {
             "email": "g8sl3btpyz@knmcadibav.com",
             "cookies": {
                 "csrftoken": "7owBSKtM8jrZKJ4pbFIbfBrN9NXzv55G",
