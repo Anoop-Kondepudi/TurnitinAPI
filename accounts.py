@@ -85,24 +85,31 @@ def create_default_accounts():
     """Create default accounts data structure"""
     default_accounts = [
         {
-            "email": "g8sl3btpyz@knmcadibav.com",
+            "email": "g8sl3btpyz@knmcadibav.com", #May 20, 2025
             "cookies": {
                 "csrftoken": "7owBSKtM8jrZKJ4pbFIbfBrN9NXzv55G",
                 "sessionid": "wmz3aad4j988ts3q8bu8y0nhtgm3sk0i"
             }
         },
         {
-            "email": "zbj92r25s2@mkzaso.com",
+            "email": "zbj92r25s2@mkzaso.com", #May 20, 2025
             "cookies": {
                 "csrftoken": "k2GGtCGGwSDuk3KzBUSc7XOrHRVA9plM",
                 "sessionid": "y6vdgjeku2rt20ke3pr0ocnxvjpdzp80"
             }
         },
         {
-            "email": "ed5ny72025@daouse.com",
+            "email": "ed5ny72025@daouse.com", #May 20, 2025
             "cookies": {
                 "csrftoken": "ABoIdFA5ZY6IPDvjWhbu8BXWc9J5liJn",
                 "sessionid": "p9ve1fwghckhn2od55pzt8h11j438kaj"
+            }
+        },
+        {
+            "email": "ru4ubqxb3k@knmcadibav.com", #May 14, 2025
+            "cookies": {
+                "csrftoken": "sM6h40ehc1a40GNNdXFCsInz76N1vQEA",
+                "sessionid": "7she6qjjol8nkmn70vpf5vsacyzsc4vz"
             }
         }
     ]

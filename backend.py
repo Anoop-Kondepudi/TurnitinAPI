@@ -12,10 +12,10 @@ from cloudflare_utils import upload_to_cloudflare, init_cloudflare_client, R2_BU
 from account_manager import get_account_for_upload, get_account_for_submission, get_all_accounts
 
 # Proxy settings
-PROXY_HOST = "144.229.117.13"
+PROXY_HOST = "204.242.7.46"
 PROXY_PORT = "1337"
-PROXY_USERNAME = "lho7SIZFaRh9"
-PROXY_PASSWORD = "1inYc0RRMvYs"
+PROXY_USERNAME = "G3Mvn9tOoCvL"
+PROXY_PASSWORD = "7EldVMuIZl2s"
 
 # Configure proxy URL
 PROXY_URL = f"http://{PROXY_USERNAME}:{PROXY_PASSWORD}@{PROXY_HOST}:{PROXY_PORT}"
