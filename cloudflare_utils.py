@@ -9,6 +9,7 @@ R2_BUCKET_NAME = "files"  # Replace with your actual bucket name
 
 def init_cloudflare_client():
     """Initialize Cloudflare R2 client""" #MCBatmanGamingHere@gmail.com
+    # CLOUDFLARE R2 CREDENTIALS HAVE BEEN ROLLED, SO BELOW CREDS ARE INVALID FOR SECURITY PURPOSES.
     return boto3.client(
         service_name='s3',
         endpoint_url='https://12cc55b238850cafc5209601b58df058.r2.cloudflarestorage.com',
