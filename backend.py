@@ -716,6 +716,71 @@ def save_debug_html(html_content, identifier):
         print(f"Error saving debug HTML: {str(e)}")
         return None
 
+def handle_cloudflare_challenge(client, url, headers):
+    """
+    Simple function to check for Cloudflare challenge button and click it if found
+    """
+    try:
+        # Make the initial request
+        response = client.get(url, headers=headers)
+        
+        # Set encoding before accessing text
+        response.encoding = "utf-8"
+        
+        # Parse the HTML
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Check if the button with ID "cf-continue" exists (matches the XPath //*[@id="cf-continue"])
+        cf_button = soup.find(id="cf-continue")
+        
+        # If button exists, click it
+        if cf_button:
+            print("Cloudflare challenge detected, clicking continue button...")
+            
+            # If button is in a form, get the form action URL
+            if cf_button.find_parent('form'):
+                form = cf_button.find_parent('form')
+                form_url = form.get('action', url)
+                
+                # Extract form data
+                form_data = {}
+                for input_tag in form.find_all('input'):
+                    if input_tag.get('name'):
+                        form_data[input_tag.get('name')] = input_tag.get('value', '')
+                
+                # "Click" the button by submitting the form
+                return client.post(
+                    form_url,
+                    data=form_data,
+                    headers=headers,
+                    follow_redirects=True
+                )
+            else:
+                # If it's not in a form, try to get the href
+                button_href = cf_button.get('href')
+                if button_href:
+                    # "Click" by following the href
+                    return client.get(
+                        button_href,
+                        headers=headers,
+                        follow_redirects=True
+                    )
+                else:
+                    # If no href, just try clicking the button without data
+                    return client.post(
+                        url,
+                        headers=headers,
+                        follow_redirects=True
+                    )
+        
+        # If no challenge button found, return the original response
+        return response
+        
+    except Exception as e:
+        print(f"Error handling Cloudflare challenge: {str(e)}")
+        # Return the original response on error
+        return response
+
 def main_menu():
     """Display the main menu and handle user choices"""
     while True:

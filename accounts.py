@@ -85,31 +85,31 @@ def create_default_accounts():
     """Create default accounts data structure"""
     default_accounts = [
         {
-            "email": "g8sl3btpyz@knmcadibav.com", #May 20, 2025
+            "email": "g8sl3btpyz@knmcadibav.com", #June 19, 2025
             "cookies": {
-                "csrftoken": "7owBSKtM8jrZKJ4pbFIbfBrN9NXzv55G",
-                "sessionid": "wmz3aad4j988ts3q8bu8y0nhtgm3sk0i"
+                "csrftoken": "cvlEIMmKIPJqvMDWP8lZLBuxvU4zzPxH",
+                "sessionid": "88yns3tfuxdadc0qbrbnb8wp8wruz6ef"
             }
         },
         {
-            "email": "zbj92r25s2@mkzaso.com", #May 20, 2025
+            "email": "zbj92r25s2@mkzaso.com", #June 19, 2025
             "cookies": {
-                "csrftoken": "k2GGtCGGwSDuk3KzBUSc7XOrHRVA9plM",
-                "sessionid": "y6vdgjeku2rt20ke3pr0ocnxvjpdzp80"
+                "csrftoken": "66EaIGnmsTCkN45omUKPQMdnztz8wfWi",
+                "sessionid": "7578qf9nettf9yn3a14ttr2i29htwzf9"
             }
         },
         {
-            "email": "ed5ny72025@daouse.com", #May 20, 2025
+            "email": "ed5ny72025@daouse.com", #June 19, 2025
             "cookies": {
-                "csrftoken": "ABoIdFA5ZY6IPDvjWhbu8BXWc9J5liJn",
-                "sessionid": "p9ve1fwghckhn2od55pzt8h11j438kaj"
+                "csrftoken": "1g7bGdjzad8aj5JbvBL71SAhtj7536HX",
+                "sessionid": "zvqtwil65q7nqm8y463kw68izmr4qkni"
             }
         },
         {
-            "email": "ru4ubqxb3k@knmcadibav.com", #May 14, 2025
+            "email": "ru4ubqxb3k@knmcadibav.com", #June 24, 2025
             "cookies": {
-                "csrftoken": "sM6h40ehc1a40GNNdXFCsInz76N1vQEA",
-                "sessionid": "7she6qjjol8nkmn70vpf5vsacyzsc4vz"
+                "csrftoken": "IH0IBtxaPWBihkzYlw09eWOOjFIuqjOD",
+                "sessionid": "u53l75pxfspgmathducjb939by3p2yc3"
             }
         }
     ]
