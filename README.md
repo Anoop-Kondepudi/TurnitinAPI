@@ -2,6 +2,17 @@
 
 API service for checking documents with Turnitin.
 
+## ⚠️ Important Notice
+
+**This project is no longer operational and has been archived for educational purposes.**
+
+As part of making this repository publicly available, all production infrastructure has been decommissioned:
+- Cloudflare R2 credentials have been rotated and deactivated
+- Proxy services have been discontinued
+- The public API endpoints are no longer functional
+
+While a private API instance continues to serve Ryne AI, this codebase is provided as-is for reference and learning purposes only.
+
 ## Endpoints
 
 - `POST /submit` - Submit a document URL for processing
